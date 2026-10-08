@@ -3,7 +3,7 @@
 Worker RunPod Serverless de l'**extraction 3D du mouvement** (plan « Motion », Phase 1) :
 vidéo → SAM 3.1 (suivi de la personne) → MoGe-2 (champ de vue) → SAM 3D Body (+ mains) → lissage.
 
-- Base `runpod/worker-comfyui:5.11.0-base` = ComfyUI **0.34.0** : tous les nœuds sont natifs
+- Base `runpod/worker-comfyui:5.10.0-base` = ComfyUI **0.34.0** : tous les nœuds sont natifs
   (`SAM3DBody_*`, `BuildPoseFile`, `SAM3_VideoTrack`, `MoGe*`). Le Dockerfile échoue au build s'ils manquent.
 - `fakinflu_nodes/` : un seul nœud maison, `FakinfluExportMHR`, car les nœuds natifs gardent les
   paramètres MHR bruts en mémoire. Il écrit `mhr_params.npz`, `qa.json`, `camera.json` (FOV, focale,

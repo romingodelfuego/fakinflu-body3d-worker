@@ -1,10 +1,10 @@
 # fakinflu — worker RunPod : body3d (extraction 3D du mouvement, SAM 3D Body via ComfyUI). Plan motion, Phase 1.
 # Build par RunPod (integration GitHub) a chaque GitHub Release : make worker-release W=body3d
 #
-# Base : runpod/worker-comfyui 5.11.0-base = ComfyUI 0.34.0 (torch cu128, ffmpeg, PyAV). Les noeuds
+# Base : runpod/worker-comfyui 5.10.0-base = ComfyUI 0.34.0 (5.11.0 n existe pas sur Docker Hub) (torch cu128, ffmpeg, PyAV). Les noeuds
 # SAM 3D Body (Loader/Predict/Smooth/Render, BuildPoseFile), SAM 3.1 (VideoTrack) et MoGe y sont
 # NATIFS depuis 0.34.0 : aucun custom node tiers. Seul ajout : fakinflu_nodes (export MHR + QA).
-ARG WORKER_TAG=5.11.0-base
+ARG WORKER_TAG=5.10.0-base
 FROM runpod/worker-comfyui:${WORKER_TAG}
 
 # Garde-fou de parite de version : echoue ICI si ComfyUI n'a pas les noeuds attendus.
