@@ -48,9 +48,8 @@ def _render_size(meta, resolution):
 def _save_video(wf, nid, images, fps, prefix):
     wf[nid] = {"class_type": "CreateVideo", "inputs": {"images": images, "fps": fps}}
     wf[nid + "s"] = {"class_type": "SaveVideo", "_meta": {"title": f"enregistrement {prefix.rsplit('/', 1)[-1]}"},
-                     "inputs": {"video": [nid, 0], "filename_prefix": prefix,
-                                "format": "mp4", "format.codec": "h264",
-                                "format.codec.encoding": "re-encode", "format.codec.encoding.crf": 18.0}}
+                     # auto/auto comme le template officiel : un crf force (FLOAT) part en '18.0' et libx264 le refuse
+                     "inputs": {"video": [nid, 0], "filename_prefix": prefix, "format": "auto", "format.codec": "auto"}}
 
 
 def build_workflow(preset, video_name, prefix, meta=None):
