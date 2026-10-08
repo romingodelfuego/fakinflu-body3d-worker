@@ -110,15 +110,24 @@ class FakinfluExportMHR:
         np.savez_compressed(os.path.join(out_dir, "mhr_params.npz"), detected=detected, fps=np.float32(fps),
                             image_size=np.array([H, W], dtype=np.int32), **arrays)
 
-        # ---- masques (suivi SAM3) : bits compresses
+        # ---- masques (suivi SAM3) : bits compresses. SAM 3.1 livre (H, W, 1) ou (1, H, W) selon les
+        # versions : on retire les dimensions de taille 1 ; une forme inattendue ignore le masque
+        # (avertissement) au lieu de faire echouer l'export.
         masks = []
-        for f in frames:
+        for i, f in enumerate(frames):
             m = _np(f[0].get("mask")) if f else None
-            masks.append(None if m is None else (m.reshape(m.shape[-2:]) > 0.5))
+            if m is not None:
+                m = np.squeeze(m)
+                if m.shape != (H, W):
+                    print(f"[fakinflu] masque image {i} ignore : forme {m.shape} != {(H, W)}")
+                    m = None
+                else:
+                    m = m > 0.5
+            masks.append(m)
         if any(m is not None for m in masks):
             full = np.zeros((n, H, W), dtype=bool)
             for i, m in enumerate(masks):
-                if m is not None and m.shape == (H, W):
+                if m is not None:
                     full[i] = m
             np.savez_compressed(os.path.join(out_dir, "masks.npz"),
                                 bits=np.packbits(full, axis=-1), shape=np.array(full.shape, dtype=np.int32))
