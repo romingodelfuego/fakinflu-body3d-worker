@@ -37,12 +37,16 @@ MOGE_FRAMES = 8  # le FOV d'une camera fixe n'a pas besoin de toute la video
 
 
 def _render_size(meta, resolution):
-    """Cote court = resolution (multiple de 8), l'autre cote derive par le noeud (0)."""
+    """Largeur ET hauteur explicites, multiples de 8 : libx264 (yuv420p) refuse les dimensions
+    impaires, et un seul cote fixe laisse le noeud deriver l'autre (632x1280 -> 512x1037).
+    Cote court = resolution (sans agrandir la source)."""
     w, h = meta.get("width") or 0, meta.get("height") or 0
-    r = int(resolution) // 8 * 8
-    if not (w and h) or min(w, h) <= r:
+    if not (w and h):
         return 0, 0
-    return (0, r) if h <= w else (r, 0)
+    short = min(int(resolution), min(w, h))
+    scale = short / min(w, h)
+    r8 = lambda v: max(8, int(round(v * scale / 8)) * 8)
+    return r8(w), r8(h)
 
 
 def _save_video(wf, nid, images, fps, prefix):
