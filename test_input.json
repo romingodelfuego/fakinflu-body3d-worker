@@ -1,0 +1,11 @@
+{"input": {"run_id": "build-smoke", "r2": false,
+  "inputs": {"video": {"url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/woman_holding_water_glass.mp4", "name": "test.mp4"}},
+  "outputs": {"mhr_params": {"max_bytes": 50000000}, "camera": {"max_bytes": 64000}, "qa": {"max_bytes": 5000000}},
+  "params": {"preset": {"target": {"mode": "auto_largest", "box": null, "point": null, "text": "person"},
+    "tracking": {"model": "sam3.1", "reacquire_on_loss": true, "threshold": 0.5},
+    "predict": {"precision": "bf16", "hands": false, "face": false},
+    "camera": {"fov": "fixed", "fixed_fov_deg": 0},
+    "smoothing": {"enabled": true, "strength": 0.5, "method": "savgol", "window": 7},
+    "frames": {"start": 0, "end": 10, "stride": 1, "fps_out": null},
+    "render": {"control": [], "resolution": 512, "overlay": false},
+    "export": {"glb": false, "bvh": false}, "qa": {"jump_m": 0.25, "out_of_frame": 0.2}}}}}

@@ -1,0 +1,29 @@
+{
+  "name": "body3d",
+  "repo": "romingodelfuego/fakinflu-body3d-worker",
+  "visibility": "private",
+  "description": "fakinflu RunPod serverless worker: video -> 3D body motion (SAM 3D Body + SAM 3.1 tracking + MoGe FOV, ComfyUI 0.34 native nodes, models baked). Outputs raw MHR params, QA, masks, GLB/BVH, overlay and control renders (mesh, SCAIL pose).",
+  "license": "SAM License (Meta) for SAM 3D Body and SAM 3.1 — review before any commercial use; MoGe and RT-DETR: MIT",
+  "endpoint": {
+    "name": "fakinflu-body3d-worker",
+    "env_var": "RUNPOD_BODY3D_ENDPOINT_ID",
+    "gpu_pools": [
+      "ADA_24",
+      "AMPERE_24"
+    ],
+    "workers": {
+      "min": 0,
+      "max": 2,
+      "idleTimeout": 5
+    },
+    "timeout_ms": 1800000,
+    "flashboot": "FLASHBOOT",
+    "disk_gb": 30,
+    "env": {
+      "BODY3D_JOB_TIMEOUT_S": "1700",
+      "COMFY_LOG_LEVEL": "INFO"
+    },
+    "notes": "Serverless (catalogue RunPod 2026-10-08) : AMPERE_24 0,69 $/h (A5000/3090/L4), ADA_24 1,10 $/h (4090) -> pire cas 1,10 $/h. Plan : commencer sur 24 Go et mesurer (SAM 3D Body bf16 2,8 Go + SAM 3.1 1,75 Go + MoGe). Si VRAM serree : preset predict.precision=int8 et image construite avec WITH_INT8=1.",
+    "price_per_h": 1.1
+  }
+}
