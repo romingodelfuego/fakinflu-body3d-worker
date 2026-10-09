@@ -25,5 +25,6 @@
     },
     "notes": "Serverless (catalogue RunPod 2026-10-08) : AMPERE_24 0,69 $/h (A5000/3090/L4), ADA_24 1,10 $/h (4090) -> pire cas 1,10 $/h. Plan : commencer sur 24 Go et mesurer (SAM 3D Body bf16 2,8 Go + SAM 3.1 1,75 Go + MoGe). Si VRAM serree : preset predict.precision=int8 et image construite avec WITH_INT8=1.",
     "price_per_h": 1.1
-  }
+  },
+  "version": "v1.0.5"
 }

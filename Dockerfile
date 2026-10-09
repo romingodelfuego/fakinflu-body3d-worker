@@ -28,7 +28,8 @@ RUN if [ "${WITH_INT8}" = "1" ]; then MODELS_DIR=/comfyui/models bash /tmp/downl
 COPY fakinflu_nodes /comfyui/custom_nodes/fakinflu_nodes
 
 # --- Handler fakinflu (remplace /handler.py de worker-comfyui) ---------------
-COPY transfer.py workflow.py /fakinflu/
+# VERSION (ecrit par make worker-release dans le depot miroir) : absent en build local -> "dev"
+COPY transfer.py workflow.py VERSION* /fakinflu/
 COPY handler.py /handler.py
 COPY test_input.json /test_input.json
 ENV PYTHONPATH=/fakinflu \

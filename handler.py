@@ -20,7 +20,7 @@ import glob, json, os, queue, shutil, subprocess, tempfile, threading, time, tra
 
 import runpod
 
-from transfer import Outputs, fetch_inputs, preview_event
+from transfer import Outputs, fetch_inputs, preview_event, version_event
 from workflow import build_workflow, OUTPUT_FILES, OUTPUT_NAMES
 
 COMFY = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
@@ -159,6 +159,7 @@ def handler(job):
     in_path = None
     prefix = f"fakinflu/{inp.get('run_id') or job.get('id', 'run')}"
     t0 = time.time()
+    yield version_event("body3d")  # toujours en premier : le client verifie la version de l'image
     try:
         outputs = Outputs(inp)
         paths, events = fetch_inputs(inp, os.path.join(work, "in"), outputs)

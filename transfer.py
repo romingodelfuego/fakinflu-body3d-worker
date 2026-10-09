@@ -9,7 +9,8 @@ PUT pour les sorties). Ne jamais journaliser une URL : c'est un jeton au porteur
 
 Entree d'un fichier  : {"b64", "name", "bytes", "sha256"}  ou  {"url", "name", "bytes", "sha256"}
 Sortie attendue      : {"put_url", "key", "max_bytes"}     ou  {"max_bytes"} (sans R2)
-Evenements produits  : file (inline | r2), chunk / chunk_end (repli, 1 Mio), input_read, preview (<= 1 Mio).
+Evenements produits  : version (toujours le premier), file (inline | r2), chunk / chunk_end (repli, 1 Mio),
+                       input_read, preview (<= 1 Mio).
 """
 import base64, hashlib, json, os, urllib.request
 
@@ -43,6 +44,18 @@ def sha256_file(path):
 
 def _safe(name):
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in os.path.basename(name or "file"))
+
+
+def version_event(worker):
+    """Premier evenement de chaque job : version de l'image (fichier VERSION ecrit par
+    `make worker-release` a cote de transfer.py). Le client annule le job si elle ne correspond
+    pas a celle attendue (worker.json) : on ne paie pas un job sur une ancienne image."""
+    try:
+        with open(os.environ.get("WORKER_VERSION_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")) as f:
+            version = f.read().strip() or "dev"
+    except OSError:
+        version = "dev"  # build local, hors release
+    return {"type": "version", "worker": worker, "version": version}
 
 
 def preview_event(data, mime, **extra):
