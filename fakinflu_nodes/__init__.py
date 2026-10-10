@@ -165,9 +165,9 @@ class FakinfluExportMHR:
         focal = arrays.get("focal_length")
         motion_px = None
         if images is not None:
-            imgs = (images.detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-            step = max(1, n // 60)  # ~60 images suffisent
-            motion_px = _camera_motion(list(imgs[::step]), masks[::step])
+            step = max(1, n // 60)  # ~60 images suffisent ; sous-echantillonner AVANT de convertir (sinon copie de toute la video)
+            imgs = (images[::step].detach().float().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            motion_px = _camera_motion(list(imgs), masks[::step])
         cam = {
             "image_size": [int(H), int(W)], "fps": fps,
             "fov_deg": None if fov_deg is None else float(fov_deg),
@@ -182,5 +182,112 @@ class FakinfluExportMHR:
         return {"ui": {"text": [json.dumps(qa["summary"])]}}
 
 
-NODE_CLASS_MAPPINGS = {"FakinfluExportMHR": FakinfluExportMHR}
-NODE_DISPLAY_NAME_MAPPINGS = {"FakinfluExportMHR": "fakinflu — Export MHR params + QA"}
+class FakinfluRenderVideo:
+    """SAM3DBody_Render par paquets d'images, encode en H.264 au fil de l'eau.
+
+    Le noeud natif empile tout le rendu en float32 (liste + torch.stack : 2 copies de la video),
+    puis CreateVideo/SaveVideo le gardent en cache : ~11 Go par rendu pour 1100 images en 632x1280,
+    trois rendus -> OOM du conteneur. Ici la memoire reste O(paquet) : chaque paquet est rendu par
+    le noeud natif (meme resultat), converti en uint8 et pousse dans ffmpeg.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mhr_pose_data": ("MHR_POSE_DATA",),
+                "filename": ("STRING", {"default": "fakinflu/render.mp4"}),
+                "fps": ("FLOAT", {"default": 30.0, "min": 1.0, "max": 240.0}),
+                "width": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 8}),
+                "height": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 8}),
+                # render_style deja imbrique comme le recoit SAM3DBody_Render.execute (JSON)
+                "render_style": ("STRING", {"default": '{"render_style": "mesh"}'}),
+                "chunk": ("INT", {"default": 32, "min": 1, "max": 512}),
+                "crf": ("INT", {"default": 18, "min": 0, "max": 51}),
+            },
+            "optional": {"background": ("IMAGE",)},
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "render"
+    OUTPUT_NODE = True
+    CATEGORY = "fakinflu"
+
+    def render(self, mhr_pose_data, filename, fps, width, height, render_style, chunk, crf, background=None):
+        import subprocess
+        import torch
+        import comfy.utils
+        from comfy_extras.nodes_sam3d_body import SAM3DBody_Render
+
+        style = json.loads(render_style)
+        frames = mhr_pose_data["frames"]
+        n = len(frames)
+        path = os.path.join(folder_paths.get_output_directory(), filename)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # nom temporaire hors des motifs de sortie : le handler n'envoie que des fichiers termines
+        tmp = os.path.join(os.path.dirname(path), "." + os.path.basename(path) + ".tmp")
+        log = tmp + ".log"
+        pbar = comfy.utils.ProgressBar(n)
+        hook = comfy.utils.PROGRESS_BAR_HOOK
+        proc, errf = None, None
+
+        def ffmpeg_error():
+            errf.flush()
+            with open(log, "rb") as fh:
+                return RuntimeError(f"ffmpeg ({filename}) : {fh.read().decode(errors='replace')[-800:]}")
+
+        try:
+            for a in range(0, n, chunk):
+                part = dict(mhr_pose_data)
+                part["frames"] = frames[a:a + chunk]  # seule cle par image du pose_data
+                bg = None
+                if background is not None:
+                    i = min(a, background.shape[0] - 1)
+                    bg = background[i:i + len(part["frames"])]
+                comfy.utils.set_progress_bar_global_hook(None)  # la barre du noeud natif repartirait de 0 a chaque paquet
+                try:
+                    img = SAM3DBody_Render.execute(pose_data=part, background=bg, width=width, height=height,
+                                                   render_style=style).args[0]
+                finally:
+                    comfy.utils.set_progress_bar_global_hook(hook)
+                u8 = (img.float().clamp(0.0, 1.0) * 255.0).round().to(torch.uint8).cpu().numpy()
+                del img
+                if proc is None:
+                    h, w = u8.shape[1:3]
+                    errf = open(log, "wb")
+                    proc = subprocess.Popen(
+                        ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
+                         "-r", f"{float(fps):.6f}", "-i", "-", "-an",
+                         # libx264 en yuv420p exige des dimensions paires
+                         "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                         "-c:v", "libx264", "-preset", "veryfast", "-crf", str(int(crf)), "-pix_fmt", "yuv420p",
+                         "-movflags", "+faststart", "-f", "mp4", tmp],
+                        stdin=subprocess.PIPE, stderr=errf)
+                try:
+                    proc.stdin.write(u8.tobytes())
+                except BrokenPipeError:
+                    proc.wait()
+                    raise ffmpeg_error()
+                pbar.update(len(u8))
+            if proc is None:
+                raise ValueError("aucune image a rendre")
+            proc.stdin.close()
+            if proc.wait() != 0:
+                raise ffmpeg_error()
+            os.replace(tmp, path)
+        finally:
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            if errf is not None:
+                errf.close()
+            for p in (tmp, log):
+                if os.path.exists(p):
+                    os.remove(p)
+        # ui non vide : sinon ComfyUI n'emet pas « executed », que le handler attend pour envoyer le fichier
+        return {"ui": {"text": [filename]}}
+
+
+NODE_CLASS_MAPPINGS = {"FakinfluExportMHR": FakinfluExportMHR, "FakinfluRenderVideo": FakinfluRenderVideo}
+NODE_DISPLAY_NAME_MAPPINGS = {"FakinfluExportMHR": "fakinflu — Export MHR params + QA",
+                              "FakinfluRenderVideo": "fakinflu — Render 3D Body -> MP4 (streamed)"}

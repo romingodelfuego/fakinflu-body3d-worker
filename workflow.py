@@ -10,7 +10,7 @@ Derive du template officiel Comfy-Org « utility_sam3d_body » et valide par Com
         -> SAM 3D Body Predict (+ mains) -> Smooth           -> MHR_POSE_DATA
         -> FakinfluExportMHR : mhr_params.npz, qa.json, camera.json, masks.npz
         -> BuildPoseFile -> SaveGLB : motion .glb / .bvh
-        -> Render mesh / scail (+ overlay sur la video) -> CreateVideo -> SaveVideo
+        -> FakinfluRenderVideo mesh / scail (+ overlay sur la video) : rendu par paquets, encode au fil de l'eau
 """
 import json, sys
 
@@ -22,9 +22,15 @@ OUTPUT_FILES = {
     "masks": "masks.npz",
     "motion_glb": "motion_*.glb",
     "motion_bvh": "motion_*.bvh",
-    "overlay": "overlay_*.mp4",
-    "control_mesh": "control_mesh_*.mp4",
-    "control_scail_pose": "control_scail_pose_*.mp4",
+    "overlay": "overlay.mp4",
+    "control_mesh": "control_mesh.mp4",
+    "control_scail_pose": "control_scail_pose.mp4",
+}
+# role -> noeud qui l'ecrit : le handler envoie le fichier des que ce noeud a fini (evenement « executed »)
+OUTPUT_NODES = {
+    "mhr_params": "export", "camera": "export", "qa": "export", "masks": "export",
+    "motion_glb": "glb_save", "motion_bvh": "bvh_save",
+    "overlay": "r_overlay", "control_mesh": "r_mesh", "control_scail_pose": "r_scail",
 }
 OUTPUT_NAMES = {
     "mhr_params": "mhr_params.npz", "camera": "camera.json", "qa": "qa.json", "masks": "masks.npz",
@@ -49,11 +55,14 @@ def _render_size(meta, resolution):
     return r8(w), r8(h)
 
 
-def _save_video(wf, nid, images, fps, prefix):
-    wf[nid] = {"class_type": "CreateVideo", "inputs": {"images": images, "fps": fps}}
-    wf[nid + "s"] = {"class_type": "SaveVideo", "_meta": {"title": f"enregistrement {prefix.rsplit('/', 1)[-1]}"},
-                     # auto/auto comme le template officiel : un crf force (FLOAT) part en '18.0' et libx264 le refuse
-                     "inputs": {"video": [nid, 0], "filename_prefix": prefix, "format": "auto", "format.codec": "auto"}}
+def _render_video(wf, nid, title, pose, fps, prefix, name, width, height, style, background=None, crf=18):
+    """Rendu SAM 3D Body -> MP4 sans jamais tenir toute la video en memoire (cf. FakinfluRenderVideo).
+    `style` : render_style imbrique tel que le recoit SAM3DBody_Render.execute."""
+    inputs = {"mhr_pose_data": pose, "filename": f"{prefix}/{name}", "fps": fps, "width": width, "height": height,
+              "render_style": json.dumps(style), "chunk": 32, "crf": crf}
+    if background is not None:
+        inputs["background"] = background
+    wf[nid] = {"class_type": "FakinfluRenderVideo", "_meta": {"title": title}, "inputs": inputs}
 
 
 def build_workflow(preset, video_name, prefix, meta=None):
@@ -133,24 +142,17 @@ def build_workflow(preset, video_name, prefix, meta=None):
 
     # --- rendus : controle SCAIL-2 (camera source) + overlay de QA
     width, height = _render_size(meta, render.get("resolution", 704))
-    mesh_style = {"render_style": "mesh", "render_style.shader": "default", "render_style.opacity": 1.0,
-                  "render_style.person_palette_falloff": 0.6, "render_style.region": "full_body"}
+    mesh_style = {"render_style": "mesh", "shader": {"shader": "default"}, "opacity": 1.0,
+                  "person_palette_falloff": 0.6, "region": "full_body"}
     if "mesh" in render.get("control", []):
-        wf["r_mesh"] = {"class_type": "SAM3DBody_Render", "_meta": {"title": "rendu controle maillage"},
-                        "inputs": {"pose_data": pose, "width": width, "height": height, **mesh_style}}
-        _save_video(wf, "v_mesh", ["r_mesh", 0], fps, f"{prefix}/control_mesh")
+        _render_video(wf, "r_mesh", "rendu controle maillage", pose, fps, prefix, "control_mesh.mp4", width, height, mesh_style)
     if "scail_pose" in render.get("control", []):
-        wf["r_scail"] = {"class_type": "SAM3DBody_Render", "_meta": {"title": "rendu controle SCAIL"},
-                         "inputs": {"pose_data": pose, "width": width, "height": height,
-                                    "render_style": "scail", "render_style.radius_m": 0.022,
-                                    "render_style.hand_style": "dwpose", "render_style.face_style": "disabled",
-                                    "render_style.person_palette_falloff": 0.6}}
-        _save_video(wf, "v_scail", ["r_scail", 0], fps, f"{prefix}/control_scail_pose")
+        _render_video(wf, "r_scail", "rendu controle SCAIL", pose, fps, prefix, "control_scail_pose.mp4", width, height,
+                      {"render_style": "scail", "radius_m": 0.022, "hand_style": "dwpose", "face_style": "disabled",
+                       "person_palette_falloff": 0.6})
     if render.get("overlay", True):
-        wf["r_overlay"] = {"class_type": "SAM3DBody_Render", "_meta": {"title": "rendu overlay (QA)"},
-                           "inputs": {"pose_data": pose, "background": images, "width": width, "height": height,
-                                      **mesh_style, "render_style.opacity": 0.6}}
-        _save_video(wf, "v_overlay", ["r_overlay", 0], fps, f"{prefix}/overlay")
+        _render_video(wf, "r_overlay", "rendu overlay (QA)", pose, fps, prefix, "overlay.mp4", width, height,
+                      {**mesh_style, "opacity": 0.6}, background=images, crf=23)  # QA seulement : plus leger
     return wf
 
 
