@@ -51,7 +51,7 @@ def wait_comfy(max_s=600):
             return
         except (urllib.error.URLError, ConnectionError, TimeoutError, OSError):
             time.sleep(1)
-    raise RuntimeError(f"ComfyUI injoignable sur {COMFY} apres {max_s}s")
+    raise RuntimeError(f"ComfyUI unreachable at {COMFY} after {max_s}s")
 
 
 def _ws_progress(client_id, q, stop):
@@ -93,21 +93,21 @@ def run_workflow(wf, on_executed=None):
         try:
             r = _http("POST", "/prompt", {"prompt": wf, "client_id": client_id})
         except urllib.error.HTTPError as e:
-            raise RuntimeError(f"ComfyUI a refuse le graphe (HTTP {e.code}) : {e.read().decode()[:1500]}")
+            raise RuntimeError(f"ComfyUI rejected the graph (HTTP {e.code}): {e.read().decode()[:1500]}")
         pid = r["prompt_id"]
         t0, last_poll = time.time(), 0.0
         names = {k: v.get("_meta", {}).get("title") or v["class_type"] for k, v in wf.items()}
         while True:
             if time.time() - t0 > JOB_TIMEOUT:
                 _http("POST", "/interrupt", {})
-                raise RuntimeError(f"timeout ComfyUI ({JOB_TIMEOUT}s)")
+                raise RuntimeError(f"ComfyUI timeout ({JOB_TIMEOUT}s)")
             try:
                 m = q.get(timeout=1)
                 d = m.get("data", {})
                 if m["type"] == "executing" and d.get("node"):
                     yield {"type": "progress", "step": names.get(d["node"], d["node"])}
                 elif m["type"] == "progress" and d.get("max"):
-                    yield {"type": "progress", "step": names.get(d.get("node"), "calcul"),
+                    yield {"type": "progress", "step": names.get(d.get("node"), "compute"),
                            "pct": round(100 * d["value"] / d["max"]), "frame": d["value"]}
                 elif m["type"] == "executed" and d.get("node") and on_executed:
                     yield from on_executed(d["node"])
@@ -122,8 +122,8 @@ def run_workflow(wf, on_executed=None):
                 raise
             except urllib.error.URLError as e:
                 # processus ComfyUI tue (le plus souvent : limite memoire du conteneur atteinte)
-                raise RuntimeError(f"ComfyUI s'est arrete en cours de calcul ({e.reason}) : memoire du conteneur "
-                                   "probablement depassee (journaux RunPod : « OOM »)") from e
+                raise RuntimeError(f"ComfyUI stopped mid-compute ({e.reason}): container memory "
+                                   "likely exceeded (RunPod logs: \"OOM\")") from e
             if pid not in h:
                 continue
             st = h[pid].get("status") or {}
@@ -132,7 +132,7 @@ def run_workflow(wf, on_executed=None):
                 detail = msgs[-1][1] if msgs else st
                 if isinstance(detail, dict):
                     detail = {k: detail.get(k) for k in ("node_id", "node_type", "exception_message")}
-                raise RuntimeError(f"erreur d'execution ComfyUI : {json.dumps(detail, ensure_ascii=False)[:800]}")
+                raise RuntimeError(f"ComfyUI execution error: {json.dumps(detail, ensure_ascii=False)[:800]}")
             if st.get("completed"):
                 return time.time() - t0
     finally:
@@ -178,11 +178,11 @@ def check_memory(meta):
     source = meta["frames"] * meta["width"] * meta["height"] * 3 * 4  # IMAGE ComfyUI : float32 RGB
     limit = memory_limit_bytes()
     budget = SOURCE_RAM_SHARE * limit if limit else SOURCE_RAM_FALLBACK_GB * 1024 ** 3
-    gb = lambda b: f"{b / 1024 ** 3:.1f} Go"
-    info = f"video decodee {gb(source)}, limite conteneur {gb(limit) if limit else 'inconnue'}, budget {gb(budget)}"
+    gb = lambda b: f"{b / 1024 ** 3:.1f} GB"
+    info = f"decoded video {gb(source)}, container limit {gb(limit) if limit else 'unknown'}, budget {gb(budget)}"
     if source > budget:
-        raise ValueError(f"video trop lourde pour le worker ({info}) : reduire fps_out, la resolution "
-                         "ou decouper (frames.start / frames.end)")
+        raise ValueError(f"video too heavy for the worker ({info}): lower fps_out, resolution "
+                         "or trim it (frames.start / frames.end)")
     return info
 
 
@@ -208,9 +208,9 @@ def handler(job):
         paths, events = fetch_inputs(inp, os.path.join(work, "in"), outputs)
         yield from events
         if "video" not in paths:
-            raise ValueError("entree 'video' manquante")
+            raise ValueError("missing \"video\" input")
         meta = ffprobe(paths["video"])
-        yield {"type": "progress", "step": f"video {meta['width']}x{meta['height']} {meta['fps']:.2f} fps, {meta['frames']} images", "pct": 2}
+        yield {"type": "progress", "step": f"video {meta['width']}x{meta['height']} {meta['fps']:.2f} fps, {meta['frames']} frames", "pct": 2}
         yield {"type": "progress", "step": check_memory(meta), "pct": 2}
 
         in_name = f"{uuid.uuid4().hex[:8]}_{os.path.basename(paths['video'])}"
@@ -236,7 +236,7 @@ def handler(job):
         yield from ship()  # filet : sorties dont l'evenement « executed » a ete manque
         missing = [r for r in ("mhr_params", "qa", "camera") if r not in shipped]
         if missing:
-            raise RuntimeError(f"sorties manquantes : {missing} (produites : {sorted(shipped)})")
+            raise RuntimeError(f"missing outputs: {missing} (produced: {sorted(shipped)})")
         outputs.write_summary()
         yield {"type": "done", "seed": None,
                "timings": {"comfy_s": round(seconds, 1), "total_s": round(time.time() - t0, 1)}}
